@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../app.dart';
 import '../settings.dart';
+import 'time_sheet.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -310,9 +311,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _pickTime() async {
     final s = app.settings;
-    final t = await showTimePicker(
+    final t = await showTimeSheet(
       context: context,
-      initialTime: TimeOfDay(hour: s.reminderHour, minute: s.reminderMinute),
+      title: '每日提醒时间',
+      initial: TimeOfDay(hour: s.reminderHour, minute: s.reminderMinute),
     );
     if (t != null) {
       s.reminderHour = t.hour;

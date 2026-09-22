@@ -168,6 +168,7 @@ ThemeData buildAppTheme(AppTokens t) {
   );
   return ThemeData(
     useMaterial3: true,
+    fontFamily: AppTokens.serif,
     colorScheme: scheme,
     scaffoldBackgroundColor: t.bg,
     extensions: [t],

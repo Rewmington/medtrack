@@ -52,3 +52,6 @@ app.*.map.json
 /android/.gradle/
 /android/app/.cxx/
 /windows/build/
+
+# 字体子集化源文件（25MB 可变字体，不入库，见 tools/subset_fonts.py 头部下载命令）
+tools/fontsrc/

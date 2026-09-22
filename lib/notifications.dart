@@ -21,7 +21,14 @@ class ReminderService {
       final name = await FlutterTimezone.getLocalTimezone();
       tz.setLocalLocation(tz.getLocation(name));
     } catch (_) {
-      // 拿不到时区就用 UTC，提醒时间可能偏差数小时
+      // 拿不到时区名时按设备 UTC 偏移兜底（Etc/GMT 符号相反），
+      // 直接退回 UTC 会让国内提醒迟到 8 小时。
+      final h = -DateTime.now().timeZoneOffset.inHours;
+      try {
+        tz.setLocalLocation(tz.getLocation('Etc/GMT${h >= 0 ? '+' : ''}$h'));
+      } catch (_) {
+        tz.setLocalLocation(tz.getLocation('UTC'));
+      }
     }
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(
@@ -33,6 +40,8 @@ class ReminderService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await notif?.requestNotificationsPermission();
+    // Android 12+ 精确闹钟授权（用户拒绝时系统仍可延迟）
+    await notif?.requestExactAlarmsPermission();
     _ready = true;
   }
 
@@ -113,7 +122,7 @@ class ReminderService {
       body,
       _nextInstanceOf(hour, minute),
       NotificationDetails(android: details),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,

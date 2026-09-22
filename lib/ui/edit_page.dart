@@ -5,6 +5,7 @@ import '../app.dart';
 import '../db.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'time_sheet.dart';
 
 class EditPage extends StatefulWidget {
   final Medicine? medicine;
@@ -380,9 +381,10 @@ class _EditPageState extends State<EditPage> {
 
   Future<void> _editSlot(int i) async {
     final cur = _slotState[i] ?? _slotCustom[i] ?? _slotDefs[i].def;
-    final t = await showTimePicker(
+    final t = await showTimeSheet(
       context: context,
-      initialTime: TimeOfDay(hour: cur ~/ 60, minute: cur % 60),
+      title: '${_slotDefs[i].label} · 服药时间',
+      initial: TimeOfDay(hour: cur ~/ 60, minute: cur % 60),
     );
     if (t == null || !mounted) return;
     final min = t.hour * 60 + t.minute;
@@ -400,10 +402,7 @@ class _EditPageState extends State<EditPage> {
   }
 
   Future<void> _addTime() async {
-    final t = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
+    final t = await showTimeSheet(context: context, initial: TimeOfDay.now());
     if (t != null) {
       setState(() {
         _times.add(t.hour * 60 + t.minute);

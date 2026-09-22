@@ -57,7 +57,11 @@ class ReminderService {
   );
 
   /// 根据当前药品状态重建全部提醒（每日重复）。
-  Future<void> reschedule(List<Medicine> medicines, Settings settings) async {
+  Future<void> reschedule(
+    List<Medicine> medicines,
+    Settings settings, {
+    Map<String, int> takenToday = const {},
+  }) async {
     if (!_ready) return;
     await _plugin.cancelAll();
     var id = 1000;
@@ -76,7 +80,12 @@ class ReminderService {
         );
       }
       if (settings.remindersEnabled && settings.doseTimeReminders) {
-        for (final min in m.scheduleMinutes) {
+        final mins = m.scheduleMinutes;
+        final taken = takenToday[m.id] ?? 0;
+        for (var j = 0; j < mins.length; j++) {
+          final min = mins[j];
+          // 打卡从最早时段依次点亮：已覆盖到的点位若今天还要触发，跳过。
+          if (j < taken && _firesToday(min)) continue;
           await _schedule(
             id++,
             '该吃 ${m.name} 了',
@@ -109,6 +118,14 @@ class ReminderService {
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+  }
+
+  static bool _firesToday(int totalMinutes) {
+    final next = _nextInstanceOf(totalMinutes ~/ 60, totalMinutes % 60);
+    final now = tz.TZDateTime.now(tz.local);
+    return next.year == now.year &&
+        next.month == now.month &&
+        next.day == now.day;
   }
 
   static tz.TZDateTime _nextInstanceOf(int hour, int minute) {

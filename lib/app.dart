@@ -88,7 +88,13 @@ class AppController extends ChangeNotifier {
     );
     notifyListeners();
     if (settings.remindersEnabled) {
-      unawaited(reminders.reschedule(medicines, settings));
+      unawaited(
+        reminders.reschedule(
+          medicines,
+          settings,
+          takenToday: {for (final m in medicines) m.id: takenToday(m.id)},
+        ),
+      );
     } else {
       unawaited(reminders.cancelAll());
     }

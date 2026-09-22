@@ -28,6 +28,19 @@ class _EditPageState extends State<EditPage> {
   List<int> _times = []; // 空 = 自动
   late bool _autoTimes;
 
+  /// 早/中/晚快捷时段：窗口用于初始识别，默认时间用于首次点选。
+  static const _slotDefs = [
+    (label: '早晨', start: 5 * 60, end: 11 * 60, def: 8 * 60),
+    (label: '中午', start: 11 * 60, end: 16 * 60, def: 12 * 60),
+    (label: '晚上', start: 16 * 60, end: 24 * 60, def: 20 * 60),
+  ];
+
+  /// 已选时段 → 该时段对应的时间点（分钟）；未选则无键。
+  final Map<int, int> _slotState = {};
+
+  /// 未选时段被长按改过的默认时间，下次点选时沿用。
+  final Map<int, int> _slotCustom = {};
+
   bool get isNew => widget.medicine == null;
 
   @override
@@ -46,6 +59,15 @@ class _EditPageState extends State<EditPage> {
       _lowDays = m.lowDays;
       _autoTimes = m.times.isEmpty;
       _times = m.times.isEmpty ? [] : m.scheduleMinutes;
+      for (var i = 0; i < _slotDefs.length; i++) {
+        final d = _slotDefs[i];
+        for (final t in _times) {
+          if (t >= d.start && t < d.end) {
+            _slotState[i] = t;
+            break;
+          }
+        }
+      }
     } else {
       _autoTimes = true;
     }
@@ -210,9 +232,43 @@ class _EditPageState extends State<EditPage> {
                         value: _autoTimes,
                         onChanged: (v) => setState(() {
                           _autoTimes = v;
-                          if (v) _times = [];
+                          if (v) {
+                            _times = [];
+                            _slotState.clear();
+                          }
                         }),
                       ),
+                      if (!_autoTimes) ...[
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            for (var i = 0; i < _slotDefs.length; i++)
+                              GestureDetector(
+                                onLongPress: () => _editSlot(i),
+                                child: FilterChip(
+                                  selected: _slotState.containsKey(i),
+                                  label: Text(
+                                    _slotState[i] != null
+                                        ? '${_slotDefs[i].label} ${formatMinutes(_slotState[i]!)}'
+                                        : _slotCustom[i] != null
+                                        ? '${_slotDefs[i].label} ${formatMinutes(_slotCustom[i]!)}'
+                                        : _slotDefs[i].label,
+                                  ),
+                                  onSelected: (v) => _toggleSlot(i, v),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '点按时段选择 · 长按改该时段时间',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -221,8 +277,10 @@ class _EditPageState extends State<EditPage> {
                             InputChip(
                               label: Text(formatMinutes(_times[i])),
                               avatar: const Icon(Icons.alarm, size: 16),
-                              onDeleted: () =>
-                                  setState(() => _times.removeAt(i)),
+                              onDeleted: () => setState(() {
+                                final min = _times.removeAt(i);
+                                _slotState.removeWhere((_, v) => v == min);
+                              }),
                             ),
                           if (!_autoTimes)
                             ActionChip(
@@ -302,6 +360,44 @@ class _EditPageState extends State<EditPage> {
 
   static String _trim(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+  void _toggleSlot(int i, bool on) {
+    setState(() {
+      if (on) {
+        final min = _slotCustom[i] ?? _slotDefs[i].def;
+        _slotState[i] = min;
+        if (!_times.contains(min)) _times.add(min);
+      } else {
+        final min = _slotState.remove(i);
+        if (min != null) {
+          _times.remove(min);
+          _slotCustom[i] = min; // 记住这次的时间，取消再选不丢
+        }
+      }
+      _times.sort();
+    });
+  }
+
+  Future<void> _editSlot(int i) async {
+    final cur = _slotState[i] ?? _slotCustom[i] ?? _slotDefs[i].def;
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: cur ~/ 60, minute: cur % 60),
+    );
+    if (t == null || !mounted) return;
+    final min = t.hour * 60 + t.minute;
+    setState(() {
+      if (_slotState.containsKey(i)) {
+        final old = _slotState[i]!;
+        if (old != min) _times.remove(old);
+        _slotState[i] = min;
+        if (!_times.contains(min)) _times.add(min);
+      } else {
+        _slotCustom[i] = min;
+      }
+      _times.sort();
+    });
+  }
 
   Future<void> _addTime() async {
     final t = await showTimePicker(

@@ -65,7 +65,6 @@ class ReminderService {
     priority: Priority.high,
   );
 
-  /// 根据当前药品状态重建全部提醒（每日重复）。
   /// 立即弹一条（不经 AlarmManager），单独验证通知显示通道。
   Future<void> showNow() async {
     if (!_ready) return;
@@ -112,27 +111,43 @@ class ReminderService {
     }
   }
 
+  /// 上一次真正落到系统里的排期指纹与通知 id。
+  /// 每分钟刷新时若排期内容没变就整体跳过，变了也只按 id 精确撤销重建——
+  /// 绝不能 cancelAll：会把测试通知和刚挂上的闹钟一起抹掉，
+  /// 且频繁撤建会被厂商省电策略判定为异常而拦截送达。
+  String? _appliedSig;
+  List<int> _appliedIds = const [];
+
   Future<void> reschedule(
     List<Medicine> medicines,
     Settings settings, {
     Map<String, int> takenToday = const {},
   }) async {
     if (!_ready) return;
-    await _plugin.cancelAll();
-    var id = 1000;
+    final specs =
+        <
+          ({
+            int hour,
+            int minute,
+            String channel,
+            String title,
+            String body,
+            AndroidNotificationDetails details,
+          })
+        >[];
     for (final m in medicines) {
       if (settings.remindersEnabled && m.isLow && settings.lowStockReminders) {
         final d = m.daysLeft!;
-        await _schedule(
-          id++,
-          '药品余量不足',
-          d <= 0
+        specs.add((
+          hour: settings.reminderHour,
+          minute: settings.reminderMinute,
+          channel: _low.channelId,
+          title: '药品余量不足',
+          body: d <= 0
               ? '${m.name} 预计已吃完，请及时补充'
               : '${m.name} 仅够约 ${d.ceil()} 天，预计 ${m.estimatedFinishDate!.month}月${m.estimatedFinishDate!.day}日 吃完',
-          _low,
-          settings.reminderHour,
-          settings.reminderMinute,
-        );
+          details: _low,
+        ));
       }
       if (settings.remindersEnabled && settings.doseTimeReminders) {
         final mins = m.scheduleMinutes;
@@ -141,17 +156,34 @@ class ReminderService {
           final min = mins[j];
           // 打卡从最早时段依次点亮：已覆盖到的点位若今天还要触发，跳过。
           if (j < taken && _firesToday(min)) continue;
-          await _schedule(
-            id++,
-            '该吃 ${m.name} 了',
-            '每次 ${m.dailyUseLabel.substring(3)}（${m.times.isEmpty ? '默认按次数安排' : '按你设定的时间'}）',
-            _dose,
-            min ~/ 60,
-            min % 60,
-          );
+          specs.add((
+            hour: min ~/ 60,
+            minute: min % 60,
+            channel: _dose.channelId,
+            title: '该吃 ${m.name} 了',
+            body:
+                '每次 ${m.dailyUseLabel.substring(3)}（${m.times.isEmpty ? '默认按次数安排' : '按你设定的时间'}）',
+            details: _dose,
+          ));
         }
       }
     }
+    final sig = specs
+        .map((s) => '${s.hour}:${s.minute}#${s.channel}#${s.title}#${s.body}')
+        .join('|');
+    if (sig == _appliedSig) return;
+    for (final id in _appliedIds) {
+      await _plugin.cancel(id);
+    }
+    final ids = <int>[];
+    var id = 1000;
+    for (final s in specs) {
+      await _schedule(id, s.title, s.body, s.details, s.hour, s.minute);
+      ids.add(id);
+      id++;
+    }
+    _appliedIds = ids;
+    _appliedSig = sig;
   }
 
   Future<void> _schedule(

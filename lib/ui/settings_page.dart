@@ -228,6 +228,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     onTap: _pickTime,
                   ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('发送测试提醒'),
+                    subtitle: const Text('1 分钟后弹一条系统通知，验证提醒链路'),
+                    onTap: _testReminder,
+                  ),
                 ],
               ),
             ),
@@ -305,6 +311,16 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _testReminder() async {
+    final err = await app.reminders.test(60);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(err == null ? '测试提醒已排期，请留意 1 分钟后的通知' : '排期失败：$err'),
       ),
     );
   }

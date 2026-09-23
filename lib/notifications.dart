@@ -66,6 +66,28 @@ class ReminderService {
   );
 
   /// 根据当前药品状态重建全部提醒（每日重复）。
+  /// 一次性测试提醒（delaySeconds 后触发），返回 null 表示排期成功。
+  Future<String?> test(int delaySeconds) async {
+    if (!_ready) return '当前平台不走系统通知（仅安卓支持）';
+    final when = tz.TZDateTime.now(tz.local)
+        .add(Duration(seconds: delaySeconds));
+    try {
+      await _plugin.zonedSchedule(
+        9999,
+        '测试提醒',
+        '这条准时到达说明系统通知链路正常',
+        when,
+        NotificationDetails(android: _dose),
+        androidScheduleMode: AndroidScheduleMode.alarmClock,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   Future<void> reschedule(
     List<Medicine> medicines,
     Settings settings, {
@@ -122,7 +144,7 @@ class ReminderService {
       body,
       _nextInstanceOf(hour, minute),
       NotificationDetails(android: details),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,

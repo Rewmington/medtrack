@@ -66,6 +66,17 @@ class ReminderService {
   );
 
   /// 根据当前药品状态重建全部提醒（每日重复）。
+  /// 立即弹一条（不经 AlarmManager），单独验证通知显示通道。
+  Future<void> showNow() async {
+    if (!_ready) return;
+    await _plugin.show(
+      9998,
+      '立即测试通知',
+      '看得到我=显示通道正常，问题在闹钟送达',
+      NotificationDetails(android: _dose),
+    );
+  }
+
   /// 诊断信息：通知权限与当前排期数，用于定位"排了但不弹"。
   Future<String> status() async {
     if (!_ready) return '非安卓平台，不接管系统通知';

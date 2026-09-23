@@ -316,6 +316,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _testReminder() async {
+    await app.reminders.showNow();
     final err = await app.reminders.test(60);
     final status = await app.reminders.status();
     if (!mounted) return;
@@ -323,7 +324,9 @@ class _SettingsPageState extends State<SettingsPage> {
       SnackBar(
         duration: const Duration(seconds: 6),
         content: Text(
-          err == null ? '已排期，1 分钟后应弹。$status' : '排期失败：$err。$status',
+          err == null
+              ? '刚发了一条立即通知（没看到=显示被拦），60 秒后第二条（没看到=闹钟被拦）。$status'
+              : '排期失败：$err。$status',
         ),
       ),
     );

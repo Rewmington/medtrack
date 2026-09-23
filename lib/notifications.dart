@@ -66,6 +66,19 @@ class ReminderService {
   );
 
   /// 根据当前药品状态重建全部提醒（每日重复）。
+  /// 诊断信息：通知权限与当前排期数，用于定位"排了但不弹"。
+  Future<String> status() async {
+    if (!_ready) return '非安卓平台，不接管系统通知';
+    final notif = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final enabled = await notif?.areNotificationsEnabled() ?? false;
+    final pending = await _plugin.pendingNotificationRequests();
+    return '通知权限：${enabled ? "已允许" : "被拒绝(去设置里开)"}；'
+        '当前排期：${pending.length} 条';
+  }
+
   /// 一次性测试提醒（delaySeconds 后触发），返回 null 表示排期成功。
   Future<String?> test(int delaySeconds) async {
     if (!_ready) return '当前平台不走系统通知（仅安卓支持）';

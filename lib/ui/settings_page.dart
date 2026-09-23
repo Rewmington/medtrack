@@ -317,10 +317,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _testReminder() async {
     final err = await app.reminders.test(60);
+    final status = await app.reminders.status();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(err == null ? '测试提醒已排期，请留意 1 分钟后的通知' : '排期失败：$err'),
+        duration: const Duration(seconds: 6),
+        content: Text(
+          err == null ? '已排期，1 分钟后应弹。$status' : '排期失败：$err。$status',
+        ),
       ),
     );
   }

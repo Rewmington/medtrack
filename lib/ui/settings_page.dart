@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../app.dart';
 import '../settings.dart';
-import 'time_sheet.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -186,53 +184,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('开启提醒'),
-                    subtitle: Text(
-                      Platform.isWindows
-                          ? 'Windows 端以首页横幅提示为主'
-                          : '安卓系统通知，到点提醒 + 低量预警',
-                    ),
-                    value: s.remindersEnabled,
-                    onChanged: (v) async {
-                      setState(() => s.remindersEnabled = v);
-                      await s.save();
-                      await app.refresh();
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('到点服药提醒'),
-                    subtitle: const Text('按每个药设定的时间点，每日重复提醒'),
-                    value: s.doseTimeReminders && s.remindersEnabled,
-                    onChanged: (v) async {
-                      setState(() => s.doseTimeReminders = v);
-                      await s.save();
-                      await app.refresh();
-                    },
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('低药量每日提醒'),
-                    value: s.lowStockReminders && s.remindersEnabled,
+                    title: const Text('打开软件时低药量提醒'),
+                    subtitle: const Text('启动时检测库存，不足则弹窗提示'),
+                    value: s.lowStockReminders,
                     onChanged: (v) async {
                       setState(() => s.lowStockReminders = v);
                       await s.save();
-                      await app.refresh();
                     },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('低药量提醒时间'),
-                    subtitle: Text(
-                      '${s.reminderHour.toString().padLeft(2, '0')}:${s.reminderMinute.toString().padLeft(2, '0')}',
-                    ),
-                    onTap: _pickTime,
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('发送测试提醒'),
-                    subtitle: const Text('1 分钟后弹一条系统通知，验证提醒链路'),
-                    onTap: _testReminder,
                   ),
                 ],
               ),
@@ -313,39 +271,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _testReminder() async {
-    await app.reminders.showNow();
-    final err = await app.reminders.test(60);
-    final status = await app.reminders.status();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        content: Text(
-          err == null
-              ? '刚发了一条立即通知（没看到=显示被拦），60 秒后第二条（没看到=闹钟被拦）。$status'
-              : '排期失败：$err。$status',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickTime() async {
-    final s = app.settings;
-    final t = await showTimeSheet(
-      context: context,
-      title: '每日提醒时间',
-      initial: TimeOfDay(hour: s.reminderHour, minute: s.reminderMinute),
-    );
-    if (t != null) {
-      s.reminderHour = t.hour;
-      s.reminderMinute = t.minute;
-      await s.save();
-      await app.refresh();
-      setState(() {});
-    }
   }
 
   Future<void> _export() async {

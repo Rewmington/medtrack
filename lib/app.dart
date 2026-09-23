@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import 'db.dart';
 import 'models.dart';
-import 'notifications.dart';
 import 'settings.dart';
 import 'sync/lan_server.dart';
 import 'sync/sync_service.dart';
@@ -34,7 +33,6 @@ class AppController extends ChangeNotifier {
   final Settings settings = Settings();
   late final SyncService sync;
   late final LanSyncServer lanServer;
-  final reminders = ReminderService();
 
   List<Medicine> medicines = [];
   List<DoseLog> todayLogs = [];
@@ -52,7 +50,6 @@ class AppController extends ChangeNotifier {
   Future<void> bootstrap() async {
     await settings.load();
     await db.open();
-    await reminders.init();
     if (settings.lanHost) {
       final err = await lanServer.start();
       if (err != null) debugPrint('LAN server: $err');
@@ -87,17 +84,6 @@ class AppController extends ChangeNotifier {
       DateTime(now.year, now.month, now.day + 1),
     );
     notifyListeners();
-    if (settings.remindersEnabled) {
-      unawaited(
-        reminders.reschedule(
-          medicines,
-          settings,
-          takenToday: {for (final m in medicines) m.id: takenToday(m.id)},
-        ),
-      );
-    } else {
-      unawaited(reminders.cancelAll());
-    }
   }
 
   int takenToday(String medicineId) =>

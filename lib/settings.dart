@@ -14,11 +14,7 @@ class Settings {
   String lanKey = ''; // 可选预共享密钥
   String supabaseUrl = '';
   String supabaseAnonKey = '';
-  bool remindersEnabled = true;
-  bool lowStockReminders = true; // 低药量每日提醒
-  bool doseTimeReminders = true; // 到点服药提醒
-  int reminderHour = 9;
-  int reminderMinute = 0;
+  bool lowStockReminders = true; // 开屏低药量检测提示
   int themeMode = 0; // 0=跟随系统 1=浅色 2=深色
   int colorStyle = 0; // 0=暖纸 1=纯白
   String deviceId = '';
@@ -33,11 +29,7 @@ class Settings {
     lanKey = _prefs.getString('${_k}lanKey') ?? '';
     supabaseUrl = _prefs.getString('${_k}sbUrl') ?? '';
     supabaseAnonKey = _prefs.getString('${_k}sbKey') ?? '';
-    remindersEnabled = _prefs.getBool('${_k}remind') ?? true;
     lowStockReminders = _prefs.getBool('${_k}remindLow') ?? true;
-    doseTimeReminders = _prefs.getBool('${_k}remindDose') ?? true;
-    reminderHour = _prefs.getInt('${_k}remindH') ?? 9;
-    reminderMinute = _prefs.getInt('${_k}remindM') ?? 0;
     themeMode = _prefs.getInt('${_k}theme') ?? 0;
     colorStyle = _prefs.getInt('${_k}color') ?? 0;
     deviceId = _prefs.getString('${_k}device') ?? '';
@@ -59,11 +51,7 @@ class Settings {
     await _prefs.setString('${_k}lanKey', lanKey.trim());
     await _prefs.setString('${_k}sbUrl', supabaseUrl.trim());
     await _prefs.setString('${_k}sbKey', supabaseAnonKey.trim());
-    await _prefs.setBool('${_k}remind', remindersEnabled);
     await _prefs.setBool('${_k}remindLow', lowStockReminders);
-    await _prefs.setBool('${_k}remindDose', doseTimeReminders);
-    await _prefs.setInt('${_k}remindH', reminderHour);
-    await _prefs.setInt('${_k}remindM', reminderMinute);
     await _prefs.setInt('${_k}theme', themeMode);
     await _prefs.setInt('${_k}color', colorStyle);
   }

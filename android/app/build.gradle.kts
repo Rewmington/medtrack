@@ -12,7 +12,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -35,9 +34,8 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
-            // R8 会剥掉 flutter_local_notifications 里 Gson 的泛型签名，
-            // zonedSchedule 保存排期时抛 "Missing type parameter"，通知全部排不上。
-            // Flutter 新版 Gradle 插件默认开启这两项，必须成对显式关闭。
+            // Flutter 新版 Gradle 插件默认对 release 开启 R8，会剥离反射用的类导致运行时崩溃。
+            // 本项目依赖插件较多，保守关闭混淆与资源压缩。
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -52,8 +50,4 @@ kotlin {
 
 flutter {
     source = "../.."
-}
-
-dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

@@ -35,6 +35,47 @@ class MedApp extends StatefulWidget {
 class _MedAppState extends State<MedApp> {
   int _tab = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkLowStock());
+  }
+
+  /// 打开软件后检测：若有药品库存不足，弹窗提示并一键跳到药品页补货。
+  Future<void> _checkLowStock() async {
+    if (!mounted) return;
+    final app = context.read<AppController>();
+    if (!app.settings.lowStockReminders) return;
+    final low = app.medicines.where((m) => m.isLow).toList();
+    if (low.isEmpty) return;
+    final lines = low
+        .map((m) {
+          final d = m.daysLeft;
+          return d == null || d <= 0
+              ? '· ${m.name}：预计已吃完'
+              : '· ${m.name}：仅够约 ${d.ceil()} 天';
+        })
+        .join('\n');
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('库存提醒'),
+        content: Text('以下药品快吃完或已吃完：\n$lines'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('知道了'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('去补货'),
+          ),
+        ],
+      ),
+    );
+    if (go == true && mounted) setState(() => _tab = 1);
+  }
+
   static const _pages = [TodayPage(), HomePage(), StatsPage(), SettingsPage()];
   static const _labels = ['今天', '药品', '统计', '设置'];
   static const _icons = [

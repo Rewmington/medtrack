@@ -35,6 +35,11 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 会剥掉 flutter_local_notifications 里 Gson 的泛型签名，
+            // zonedSchedule 保存排期时抛 "Missing type parameter"，通知全部排不上。
+            // Flutter 新版 Gradle 插件默认开启这两项，必须成对显式关闭。
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

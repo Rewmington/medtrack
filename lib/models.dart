@@ -179,3 +179,36 @@ class DoseLog {
 
 String formatMinutes(int m) =>
     '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}';
+
+/// 把打卡时刻一对一分配给当天的时间点槽位，返回每个槽位命中的打卡时间戳（未命中为 null）。
+///
+/// 用「就近优先」而不是「从早到晚依次点亮」：只打了 20:00 的卡时，点亮的是 20:00 那一格，
+/// 而不是最早那一格——否则补录清单会误报早晨漏打。
+/// [dayStartMs] 为当天 00:00 的毫秒时间戳，槽位时刻 = dayStartMs + 分钟 × 60000。
+List<int?> matchSlots(
+  List<int> slotMinutes,
+  List<int> takenAts,
+  int dayStartMs,
+) {
+  final slots = [for (final m in slotMinutes) dayStartMs + m * 60000];
+  final result = List<int?>.filled(slots.length, null);
+  final used = List<bool>.filled(slots.length, false);
+  final times = [...takenAts]..sort();
+  for (final t in times) {
+    var best = -1;
+    var bestDist = double.infinity;
+    for (var i = 0; i < slots.length; i++) {
+      if (used[i]) continue;
+      final d = (slots[i] - t).abs().toDouble();
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+    if (best >= 0) {
+      used[best] = true;
+      result[best] = t;
+    }
+  }
+  return result;
+}

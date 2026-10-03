@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'db.dart';
 import 'models.dart';
@@ -14,6 +15,8 @@ class DayPlan {
   final Medicine medicine;
   final int minute; // 计划时间
   bool taken; // 已打卡
+  int? takenAtMs; // 对应打卡的实际时刻
+  DoseLog? takenLog; // 命中的那条打卡记录（补录的在别处展示）
   bool get overdue =>
       !taken &&
       DateTime.now()
@@ -25,7 +28,20 @@ class DayPlan {
               )
               .inMinutes >
           30;
-  DayPlan(this.medicine, this.minute, {this.taken = false});
+  DayPlan(
+    this.medicine,
+    this.minute, {
+    this.taken = false,
+    this.takenAtMs,
+    this.takenLog,
+  });
+}
+
+/// 过去某日没打卡的时间槽，用于补录。
+class MissedSlot {
+  final Medicine medicine;
+  final DateTime slotTime; // 本该服药的时刻
+  MissedSlot(this.medicine, this.slotTime);
 }
 
 class AppController extends ChangeNotifier {
@@ -37,6 +53,7 @@ class AppController extends ChangeNotifier {
   List<Medicine> medicines = [];
   List<DoseLog> todayLogs = [];
   List<DoseLog> weekLogs = [];
+  Map<String, List<DoseLog>> weekMap = {}; // 药 id → 近 7 天打卡
   bool busy = false;
   String? lastSyncMessage;
   DateTime now = DateTime.now();
@@ -83,6 +100,10 @@ class AppController extends ChangeNotifier {
       weekStart,
       DateTime(now.year, now.month, now.day + 1),
     );
+    weekMap = {
+      for (final m in medicines)
+        m.id: weekLogs.where((l) => l.medicineId == m.id).toList(),
+    };
     notifyListeners();
   }
 
@@ -96,27 +117,131 @@ class AppController extends ChangeNotifier {
     return logs.isEmpty ? null : logs.first;
   }
 
-  /// 今日应服计划表（药 × 时间点），按时间排序并标注是否已打。
+  /// 今日应服计划表（药 × 时间点），按时间排序；打卡按时刻就近匹配到槽位。
   List<DayPlan> get todayPlan {
+    final dayStart = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).millisecondsSinceEpoch;
     final plans = <DayPlan>[];
     for (final m in medicines) {
-      for (final min in m.scheduleMinutes) {
-        plans.add(DayPlan(m, min));
+      final slots = m.scheduleMinutes;
+      final logs = todayLogs.where((l) => l.medicineId == m.id).toList()
+        ..sort((a, b) => a.takenAt.compareTo(b.takenAt));
+      final matched = matchSlots(slots, [
+        for (final l in logs) l.takenAt,
+      ], dayStart);
+      for (var i = 0; i < slots.length; i++) {
+        plans.add(
+          DayPlan(
+            m,
+            slots[i],
+            taken: matched[i] != null,
+            takenAtMs: matched[i],
+            takenLog: matched[i] == null
+                ? null
+                : logs.firstWhere((l) => l.takenAt == matched[i]),
+          ),
+        );
       }
     }
     plans.sort((a, b) => a.minute.compareTo(b.minute));
-    // 打卡数从早到晚依次点亮计划项
+    return plans;
+  }
+
+  /// 最近 [backfillDays] 天里该服却没打卡的槽（不含今天，今天归「现在该吃的」管）。
+  List<MissedSlot> get missedSlots {
+    final result = <MissedSlot>[];
     for (final m in medicines) {
-      var taken = takenToday(m.id);
-      for (final p in plans) {
-        if (p.medicine.id == m.id) {
-          p.taken = taken > 0;
-          taken--;
+      final slots = m.scheduleMinutes;
+      if (slots.isEmpty) continue;
+      final logs = weekMap[m.id] ?? const <DoseLog>[];
+      for (var back = backfillDays; back >= 1; back--) {
+        final day = DateTime(now.year, now.month, now.day - back);
+        final dayStart = day.millisecondsSinceEpoch;
+        final nextStart = dayStart + const Duration(days: 1).inMilliseconds;
+        final dayLogs = logs
+            .where((l) => l.takenAt >= dayStart && l.takenAt < nextStart)
+            .map((l) => l.takenAt)
+            .toList();
+        final matched = matchSlots(slots, dayLogs, dayStart);
+        for (var i = 0; i < slots.length; i++) {
+          if (matched[i] != null) continue;
+          final slotTime = DateTime(
+            day.year,
+            day.month,
+            day.day,
+            slots[i] ~/ 60,
+            slots[i] % 60,
+          );
+          // 药品是那天之后才添加的，不存在"漏打"
+          if (slotTime.isBefore(
+            DateTime.fromMillisecondsSinceEpoch(m.createdAt),
+          )) {
+            continue;
+          }
+          result.add(MissedSlot(m, slotTime));
         }
       }
     }
-    return plans;
+    result.sort((a, b) => a.slotTime.compareTo(b.slotTime));
+    return result;
   }
+
+  static const backfillDays = 6; // 与 weekLogs 的 7 天窗口一致
+
+  /// 补录一条漏打卡：按槽位时刻写记录、按每次剂量扣库存（与正常打卡同一条链路）。
+  Future<void> backfillCheckIn(MissedSlot slot, BuildContext? context) async {
+    final messenger = _messengerOf(context);
+    await db.checkInWithDeduction(_backfillLog(slot));
+    await refresh();
+    final m = slot.medicine;
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          '已补录 ${m.name} ${DateFormat('M月d日 HH:mm').format(slot.slotTime)}，'
+          '扣减 ${_trim(m.amountPerDose)} ${m.unit}',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// 批量补录：逐条写记录并扣库存，最后统一刷新一次。
+  Future<void> backfillAll(
+    List<MissedSlot> slots,
+    BuildContext? context,
+  ) async {
+    final messenger = _messengerOf(context);
+    for (final s in slots) {
+      await db.checkInWithDeduction(_backfillLog(s));
+    }
+    await refresh();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('已补录 ${slots.length} 条打卡'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  static ScaffoldMessengerState? _messengerOf(BuildContext? context) =>
+      context == null || !context.mounted
+      ? null
+      : ScaffoldMessenger.of(context);
+
+  static DoseLog _backfillLog(MissedSlot slot) => DoseLog(
+    id: LocalDb.newId(),
+    medicineId: slot.medicine.id,
+    takenAt: slot.slotTime.millisecondsSinceEpoch,
+    amount: slot.medicine.amountPerDose,
+    note: '补录',
+    updatedAt: 0,
+  );
+
+  static String _trim(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
 
   double get todayProgress {
     final plans = todayPlan;

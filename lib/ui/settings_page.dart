@@ -192,6 +192,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       await s.save();
                     },
                   ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('漏打卡补录提示'),
+                    subtitle: const Text('今天页列出近 6 天没打卡的时间点，吃过了可补一条'),
+                    value: s.missedReminders,
+                    onChanged: (v) async {
+                      setState(() => s.missedReminders = v);
+                      await s.save();
+                    },
+                  ),
                 ],
               ),
             ),

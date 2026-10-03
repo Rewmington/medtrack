@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../app.dart';
 import '../models.dart';
 import '../theme.dart';
-import 'home_page.dart' show confirmUndoCheckIn;
 
 /// 今天：三色圆环总览 + 「现在该吃的 / 已完成 / 稍后」分段打卡清单。
 class TodayPage extends StatelessWidget {
@@ -24,6 +23,7 @@ class TodayPage extends StatelessWidget {
     final week = app.weeklyAdherence;
     final weekAvg = week.isEmpty ? 0.0 : week.reduce((a, b) => a + b) / 7;
     final next = plans.where((p) => !p.taken).firstOrNull;
+    final missed = app.missedSlots;
 
     return Scaffold(
       body: SafeArea(
@@ -134,6 +134,11 @@ class TodayPage extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+            if (app.settings.missedReminders && missed.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                child: _MissedCard(slots: missed),
               ),
             _Section(title: '现在该吃的'),
             ...due.map((p) => _DueRow(plan: p)),
@@ -373,7 +378,7 @@ class _DueRow extends StatelessWidget {
   }
 }
 
-/// 已完成：点按行可撤销。
+/// 已完成：点按行可撤销（撤销的是这一格对应的打卡，不是最近一条）。
 class _DoneRow extends StatelessWidget {
   final DayPlan plan;
   const _DoneRow({required this.plan});
@@ -383,12 +388,15 @@ class _DoneRow extends StatelessWidget {
     final app = context.read<AppController>();
     final t = AppTokens.of(context);
     final m = plan.medicine;
-    final log = app.latestTodayLog(m.id);
-    final time = log == null
+    final log = plan.takenLog;
+    final time = plan.takenAtMs == null
         ? ''
-        : DateFormat('HH:mm').format(log.takenDateTime);
+        : DateFormat('HH:mm')
+              .format(DateTime.fromMillisecondsSinceEpoch(plan.takenAtMs!));
+    final backfilled = log?.note == '补录';
     final info = [
       if (time.isNotEmpty) '$time 打卡',
+      if (backfilled) '补录',
       if (m.note.isNotEmpty) m.note,
     ].join(' · ');
     return _TodoRow(
@@ -396,7 +404,7 @@ class _DoneRow extends StatelessWidget {
       name: '${m.name} · ${_fmt(m.amountPerDose)} ${m.unit}',
       info: info.isEmpty ? '已完成' : info,
       opacity: 0.62,
-      onTap: () => confirmUndoCheckIn(context, app, m),
+      onTap: log == null ? null : () => _confirmUndo(context, app, log, m),
       trailing: Text(
         '点按撤销',
         style: TextStyle(
@@ -406,6 +414,38 @@ class _DoneRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmUndo(
+    BuildContext context,
+    AppController app,
+    DoseLog log,
+    Medicine m,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('撤销打卡？'),
+        content: Text(
+          '撤销「${m.name}」${DateFormat('M月d日 HH:mm').format(log.takenDateTime)} '
+          '的打卡，退回 ${_fmt(log.amount)} ${m.unit} 库存。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('撤销打卡'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await app.undoLog(log);
   }
 }
 
@@ -428,6 +468,181 @@ class _LaterRow extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: t.tx2),
       ),
     );
+  }
+}
+
+/// 近 6 天漏打卡的补录清单：补一条即按该时刻扣减库存。
+class _MissedCard extends StatefulWidget {
+  final List<MissedSlot> slots;
+  const _MissedCard({required this.slots});
+
+  @override
+  State<_MissedCard> createState() => _MissedCardState();
+}
+
+class _MissedCardState extends State<_MissedCard> {
+  static const _visible = 4;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppController>();
+    final t = AppTokens.of(context);
+    final all = widget.slots;
+    final shown = _expanded ? all : all.take(_visible).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.how_to_reg_outlined, size: 18, color: t.warn),
+                const SizedBox(width: 7),
+                Text(
+                  '漏打卡补录（${all.length}）',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: t.tx,
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => _confirmBulk(context, app),
+                  child: const Text('全部补录'),
+                ),
+                if (all.length > _visible)
+                  TextButton(
+                    onPressed: () => setState(() => _expanded = !_expanded),
+                    child: Text(_expanded ? '收起' : '展开'),
+                  ),
+              ],
+            ),
+            Text(
+              '这些时间点还没有打卡记录。吃过了就补一条，库存才会扣对。',
+              style: TextStyle(fontSize: 12, color: t.tx2, height: 1.45),
+            ),
+            const SizedBox(height: 6),
+            for (final s in shown)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.medicine.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5,
+                            ),
+                          ),
+                          Text(
+                            '${DateFormat('M月d日 HH:mm').format(s.slotTime)}'
+                            ' · ${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit}',
+                            style: TextStyle(fontSize: 11.5, color: t.tx2),
+                          ),
+                        ],
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => _confirmBackfill(context, app, s),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: t.accent, width: 1.5),
+                        ),
+                        child: Text(
+                          '补打卡',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: t.accent,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmBulk(BuildContext context, AppController app) async {
+    final groups = <String, List<MissedSlot>>{};
+    for (final s in widget.slots) {
+      groups.putIfAbsent(s.medicine.id, () => []).add(s);
+    }
+    final lines = groups.values
+        .map((g) {
+          final m = g.first.medicine;
+          return '· ${m.name} ${g.length} 次，共 ${_fmt(g.length * m.amountPerDose)} ${m.unit}';
+        })
+        .join('\n');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('全部补录？'),
+        content: Text(
+          '将补 ${widget.slots.length} 条打卡，并按下列扣减库存：\n$lines\n'
+          '\n只有确实都吃过了才划算全部补。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('全部补录'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!context.mounted) return;
+    await app.backfillAll(widget.slots, context);
+  }
+
+  Future<void> _confirmBackfill(
+    BuildContext context,
+    AppController app,
+    MissedSlot s,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('补录这条打卡？'),
+        content: Text(
+          '「${s.medicine.name}」${DateFormat('M月d日 HH:mm').format(s.slotTime)}\n'
+          '将记为已在该时刻服药，并扣减 ${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit} 库存。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('补打卡'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!context.mounted) return;
+    await app.backfillCheckIn(s, context);
   }
 }
 

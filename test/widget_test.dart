@@ -9,19 +9,18 @@ void main() {
     double amount = 1,
     int lowDays = 7,
     String times = '',
-  }) =>
-      Medicine(
-        id: 'x',
-        name: '测试药',
-        remaining: remaining,
-        perBox: perBox,
-        dosesPerDay: doses,
-        amountPerDose: amount,
-        lowDays: lowDays,
-        times: times,
-        createdAt: 0,
-        updatedAt: 0,
-      );
+  }) => Medicine(
+    id: 'x',
+    name: '测试药',
+    remaining: remaining,
+    perBox: perBox,
+    dosesPerDay: doses,
+    amountPerDose: amount,
+    lowDays: lowDays,
+    times: times,
+    createdAt: 0,
+    updatedAt: 0,
+  );
 
   group('剩余天数计算', () {
     test('剩余数量 ÷ 日消耗', () {
@@ -80,8 +79,7 @@ void main() {
     });
 
     test('非法时间点忽略后回退自动生成', () {
-      expect(make(times: '99:99').scheduleMinutes,
-          make().scheduleMinutes);
+      expect(make(times: '99:99').scheduleMinutes, make().scheduleMinutes);
     });
 
     test('未设置用量时不生成时间点', () {
@@ -92,6 +90,42 @@ void main() {
       expect(formatMinutes(0), '00:00');
       expect(formatMinutes(8 * 60 + 5), '08:05');
       expect(formatMinutes(21 * 60), '21:00');
+    });
+  });
+
+  group('槽位与打卡就近匹配', () {
+    const base = 1759276800000; // 2026-10-01 00:00 UTC+8 之类的整天起点，值本身无关
+    final slots = [8 * 60, 12 * 60, 20 * 60];
+    int at(int hour, [int minute = 0]) => base + (hour * 60 + minute) * 60000;
+
+    test('只打了晚上的卡，点亮的是 20:00 而不是 08:00', () {
+      final m = matchSlots(slots, [at(20, 1)], base);
+      expect(m[0], isNull);
+      expect(m[1], isNull);
+      expect(m[2], at(20, 1));
+    });
+
+    test('迟到的 08:30 仍算早间那一格', () {
+      final m = matchSlots(slots, [at(8, 30)], base);
+      expect(m[0], at(8, 30));
+      expect(m.sublist(1), [null, null]);
+    });
+
+    test('三格都打过则全部点亮', () {
+      final m = matchSlots(slots, [at(8), at(12), at(20)], base);
+      expect(m.every((e) => e != null), isTrue);
+    });
+
+    test('两次打卡按就近占据两格，剩下最远那格算漏', () {
+      final m = matchSlots(slots, [at(9), at(13)], base);
+      expect(m[0], at(9));
+      expect(m[1], at(13));
+      expect(m[2], isNull);
+    });
+
+    test('空槽位或没有打卡', () {
+      expect(matchSlots(const [], [at(8)], base), isEmpty);
+      expect(matchSlots(slots, const [], base), [null, null, null]);
     });
   });
 
@@ -113,7 +147,12 @@ void main() {
 
   test('打卡记录往返一致', () {
     final log = DoseLog(
-        id: 'l', medicineId: 'x', takenAt: 123, amount: 1, updatedAt: 456);
+      id: 'l',
+      medicineId: 'x',
+      takenAt: 123,
+      amount: 1,
+      updatedAt: 456,
+    );
     final backLog = DoseLog.fromRow(log.toRow());
     expect(backLog.takenAt, 123);
     expect(backLog.deleted, isFalse);

@@ -129,6 +129,30 @@ void main() {
     });
   });
 
+  test('没吃标记（0 剂量）序列化往返并保持跳过语义', () {
+    final skip = DoseLog(
+      id: 's',
+      medicineId: 'x',
+      takenAt: 123,
+      amount: 0,
+      note: '没吃',
+      updatedAt: 456,
+    );
+    final back = DoseLog.fromRow(skip.toRow());
+    expect(back.amount, 0);
+    expect(back.isSkipped, isTrue);
+    expect(
+      DoseLog(
+        id: 't',
+        medicineId: 'x',
+        takenAt: 1,
+        amount: 1,
+        updatedAt: 1,
+      ).isSkipped,
+      isFalse,
+    );
+  });
+
   test('行序列化往返一致', () {
     final m = make(times: '08:00,20:00');
     final back = Medicine.fromRow(m.toRow());

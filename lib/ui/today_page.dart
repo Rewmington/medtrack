@@ -17,9 +17,11 @@ class TodayPage extends StatelessWidget {
     final now = app.now;
     final nowMin = now.hour * 60 + now.minute;
     final plans = app.todayPlan;
-    final due = plans.where((p) => !p.taken && p.minute <= nowMin).toList();
-    final done = plans.where((p) => p.taken).toList();
-    final later = plans.where((p) => !p.taken && p.minute > nowMin).toList();
+    final active = plans.where((p) => !p.skipped).toList();
+    final due = active.where((p) => !p.taken && p.minute <= nowMin).toList();
+    final done = active.where((p) => p.taken).toList();
+    final later = active.where((p) => !p.taken && p.minute > nowMin).toList();
+    final skipped = plans.where((p) => p.skipped).toList();
     final week = app.weeklyAdherence;
     final weekAvg = week.isEmpty ? 0.0 : week.reduce((a, b) => a + b) / 7;
     final next = plans.where((p) => !p.taken).firstOrNull;
@@ -71,7 +73,7 @@ class TodayPage extends StatelessWidget {
                             _RingLegend(
                               color: t.accent,
                               label: '今日服药',
-                              value: '${done.length} / ${plans.length}',
+                              value: '${done.length} / ${active.length}',
                             ),
                             _RingLegend(
                               color: t.ok,
@@ -147,6 +149,10 @@ class TodayPage extends StatelessWidget {
             if (done.isNotEmpty) ...[
               _Section(title: '已完成'),
               ...done.map((p) => _DoneRow(plan: p)),
+            ],
+            if (skipped.isNotEmpty) ...[
+              _Section(title: '标记为没吃'),
+              ...skipped.map((p) => _SkippedRow(plan: p)),
             ],
             if (later.isNotEmpty) ...[
               _Section(title: '稍后'),
@@ -350,24 +356,48 @@ class _DueRow extends StatelessWidget {
       name: '${m.name} · ${_fmt(m.amountPerDose)} ${m.unit}',
       info: info,
       infoColor: plan.overdue ? t.accent : null,
-      trailing: GestureDetector(
-        onTap: () => app.checkIn(m),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          decoration: BoxDecoration(
-            color: out ? Colors.transparent : t.accent,
-            borderRadius: BorderRadius.circular(99),
-            border: out ? Border.all(color: t.accent, width: 1.5) : null,
-          ),
-          child: Text(
-            '打卡',
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: out ? t.accent : t.onAccent,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () => _confirmSkip(context, app, plan),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: t.line, width: 1.5),
+              ),
+              child: Text(
+                '没吃',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: t.tx2,
+                ),
+              ),
             ),
           ),
-        ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => app.checkIn(m),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              decoration: BoxDecoration(
+                color: out ? Colors.transparent : t.accent,
+                borderRadius: BorderRadius.circular(99),
+                border: out ? Border.all(color: t.accent, width: 1.5) : null,
+              ),
+              child: Text(
+                '打卡',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: out ? t.accent : t.onAccent,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -376,6 +406,102 @@ class _DueRow extends StatelessWidget {
     final now = DateTime.now();
     return now.hour * 60 + now.minute - minute;
   }
+
+  Future<void> _confirmSkip(
+    BuildContext context,
+    AppController app,
+    DayPlan plan,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('这顿没吃？'),
+        content: Text(
+          '「${plan.medicine.name}」${formatMinutes(plan.minute)} 标记为没吃：'
+          '不扣库存，也不计入今日应服数。点错了可以撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('没吃'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!context.mounted) return;
+    await app.markSkipped(plan.medicine, app.slotTimeOf(plan.minute), context);
+  }
+}
+
+/// 标记为没吃的格子：不扣库存、不算依从，点按可撤销标记。
+class _SkippedRow extends StatelessWidget {
+  final DayPlan plan;
+  const _SkippedRow({required this.plan});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppController>();
+    final t = AppTokens.of(context);
+    final m = plan.medicine;
+    final log = plan.takenLog;
+    return _TodoRow(
+      circle: _DashCircle(color: t.tx2.withValues(alpha: 0.55)),
+      name: '${m.name} · ${_fmt(m.amountPerDose)} ${m.unit}',
+      info: '${formatMinutes(plan.minute)} 没吃 · 未扣库存',
+      opacity: 0.5,
+      onTap: log == null
+          ? null
+          : () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('取消这个「没吃」标记？'),
+                  content: const Text('取消后这一格会重新变成应服，可以正常打卡。'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('保留'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('取消标记'),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true) await app.undoLog(log);
+            },
+      trailing: Text(
+        '点按撤销',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: t.tx2,
+        ),
+      ),
+    );
+  }
+}
+
+class _DashCircle extends StatelessWidget {
+  final Color color;
+  const _DashCircle({required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 34,
+    height: 34,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      border: Border.all(color: color, width: 2.5),
+    ),
+    child: Icon(Icons.remove, size: 16, color: color),
+  );
 }
 
 /// 已完成：点按行可撤销（撤销的是这一格对应的打卡，不是最近一条）。
@@ -483,6 +609,7 @@ class _MissedCard extends StatefulWidget {
 class _MissedCardState extends State<_MissedCard> {
   static const _visible = 4;
   bool _expanded = false;
+  String? _open; // 当前展开选择的漏打卡行
 
   @override
   Widget build(BuildContext context) {
@@ -509,10 +636,6 @@ class _MissedCardState extends State<_MissedCard> {
                   ),
                 ),
                 const Spacer(),
-                TextButton(
-                  onPressed: () => _confirmBulk(context, app),
-                  child: const Text('全部补录'),
-                ),
                 if (all.length > _visible)
                   TextButton(
                     onPressed: () => setState(() => _expanded = !_expanded),
@@ -521,57 +644,36 @@ class _MissedCardState extends State<_MissedCard> {
               ],
             ),
             Text(
-              '这些时间点还没有打卡记录。吃过了就补一条，库存才会扣对。',
+              '这些时间点还没有打卡记录。点一条可以单独补打卡或标记没吃；'
+              '确实全都吃过了，就全部补录，库存才会扣对。',
               style: TextStyle(fontSize: 12, color: t.tx2, height: 1.45),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _MiniButton(
+                  label: '全部补录',
+                  color: t.accent,
+                  onTap: () => _confirmBulk(context, app, false),
+                ),
+                const SizedBox(width: 8),
+                _MiniButton(
+                  label: '全部没吃',
+                  color: t.tx2,
+                  onTap: () => _confirmBulk(context, app, true),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             for (final s in shown)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            s.medicine.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13.5,
-                            ),
-                          ),
-                          Text(
-                            '${DateFormat('M月d日 HH:mm').format(s.slotTime)}'
-                            ' · ${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit}',
-                            style: TextStyle(fontSize: 11.5, color: t.tx2),
-                          ),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => _confirmBackfill(context, app, s),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(99),
-                          border: Border.all(color: t.accent, width: 1.5),
-                        ),
-                        child: Text(
-                          '补打卡',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: t.accent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+              _MissedRow(
+                slot: s,
+                open: _open == _keyOf(s),
+                onToggle: () => setState(
+                  () => _open = _open == _keyOf(s) ? null : _keyOf(s),
                 ),
+                onBackfill: () => _backfillOne(context, app, s),
+                onSkip: () => _skipOne(context, app, s),
               ),
           ],
         ),
@@ -579,7 +681,14 @@ class _MissedCardState extends State<_MissedCard> {
     );
   }
 
-  Future<void> _confirmBulk(BuildContext context, AppController app) async {
+  static String _keyOf(MissedSlot s) =>
+      '${s.medicine.id}@${s.slotTime.millisecondsSinceEpoch}';
+
+  Future<void> _confirmBulk(
+    BuildContext context,
+    AppController app,
+    bool asSkipped,
+  ) async {
     final groups = <String, List<MissedSlot>>{};
     for (final s in widget.slots) {
       groups.putIfAbsent(s.medicine.id, () => []).add(s);
@@ -587,16 +696,20 @@ class _MissedCardState extends State<_MissedCard> {
     final lines = groups.values
         .map((g) {
           final m = g.first.medicine;
-          return '· ${m.name} ${g.length} 次，共 ${_fmt(g.length * m.amountPerDose)} ${m.unit}';
+          return asSkipped
+              ? '· ${m.name} ${g.length} 次'
+              : '· ${m.name} ${g.length} 次，共 ${_fmt(g.length * m.amountPerDose)} ${m.unit}';
         })
         .join('\n');
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('全部补录？'),
+        title: Text(asSkipped ? '全部标记没吃？' : '全部补录？'),
         content: Text(
-          '将补 ${widget.slots.length} 条打卡，并按下列扣减库存：\n$lines\n'
-          '\n只有确实都吃过了才划算全部补。',
+          asSkipped
+              ? '将把下面 ${widget.slots.length} 个格子标记为没吃：不扣库存，也不计入依从率。\n$lines'
+              : '将补 ${widget.slots.length} 条打卡，并按下列扣减库存：\n$lines\n'
+                    '\n只有确实都吃过了才划算全部补。',
         ),
         actions: [
           TextButton(
@@ -605,45 +718,146 @@ class _MissedCardState extends State<_MissedCard> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('全部补录'),
+            child: Text(asSkipped ? '全部没吃' : '全部补录'),
           ),
         ],
       ),
     );
     if (ok != true) return;
     if (!context.mounted) return;
-    await app.backfillAll(widget.slots, context);
+    if (asSkipped) {
+      await app.markAllSkipped(widget.slots, context);
+    } else {
+      await app.backfillAll(widget.slots, context);
+    }
+    if (mounted) setState(() => _open = null);
   }
 
-  Future<void> _confirmBackfill(
+  Future<void> _backfillOne(
     BuildContext context,
     AppController app,
     MissedSlot s,
   ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('补录这条打卡？'),
-        content: Text(
-          '「${s.medicine.name}」${DateFormat('M月d日 HH:mm').format(s.slotTime)}\n'
-          '将记为已在该时刻服药，并扣减 ${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit} 库存。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+    await app.backfillCheckIn(s, context);
+    if (mounted) setState(() => _open = null);
+  }
+
+  Future<void> _skipOne(
+    BuildContext context,
+    AppController app,
+    MissedSlot s,
+  ) async {
+    await app.markSkipped(s.medicine, s.slotTime, context);
+    if (mounted) setState(() => _open = null);
+  }
+}
+
+/// 漏打卡清单里的一行：点一下展开「补打卡 / 没吃」两个选择。
+class _MissedRow extends StatelessWidget {
+  final MissedSlot slot;
+  final bool open;
+  final VoidCallback onToggle;
+  final VoidCallback onBackfill;
+  final VoidCallback onSkip;
+  const _MissedRow({
+    required this.slot,
+    required this.open,
+    required this.onToggle,
+    required this.onBackfill,
+    required this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final s = slot;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    open ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: t.tx2,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${s.medicine.name} · '
+                      '${DateFormat('M月d日 HH:mm').format(s.slotTime)} · '
+                      '${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit}',
+                      style: TextStyle(
+                        fontWeight: open ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 13.5,
+                        color: t.tx,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('补打卡'),
-          ),
+          if (open)
+            Padding(
+              padding: const EdgeInsets.only(left: 22, top: 2, bottom: 4),
+              child: Row(
+                children: [
+                  _MiniButton(label: '补打卡', color: t.accent, onTap: onBackfill),
+                  const SizedBox(width: 8),
+                  _MiniButton(label: '没吃', color: t.tx2, onTap: onSkip),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '补＝扣 ${_fmt(s.medicine.amountPerDose)} ${s.medicine.unit}；没吃＝不扣',
+                      style: TextStyle(fontSize: 11, color: t.tx2),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
-    if (ok != true) return;
-    if (!context.mounted) return;
-    await app.backfillCheckIn(s, context);
   }
+}
+
+class _MiniButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _MiniButton({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: color, width: 1.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    ),
+  );
 }
 
 String _fmt(double v) =>

@@ -106,13 +106,19 @@ class StatsPage extends StatelessWidget {
                     width: 30,
                     height: 30,
                     decoration: BoxDecoration(
-                      color: t.okSoft,
+                      color: log.isSkipped ? t.track : t.okSoft,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.check, size: 16, color: t.ok),
+                    child: Icon(
+                      log.isSkipped ? Icons.remove : Icons.check,
+                      size: 16,
+                      color: log.isSkipped ? t.tx2 : t.ok,
+                    ),
                   ),
                   title: Text(
-                    '${m?.name ?? "（已删除）"} · ${_fmt(log.amount)} ${m?.unit ?? ''}',
+                    log.isSkipped
+                        ? '${m?.name ?? "（已删除）"} · 没吃'
+                        : '${m?.name ?? "（已删除）"} · ${_fmt(log.amount)} ${m?.unit ?? ''}',
                     style: const TextStyle(fontSize: 14),
                   ),
                   subtitle: Text(
@@ -121,7 +127,7 @@ class StatsPage extends StatelessWidget {
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.undo_outlined, size: 20),
-                    tooltip: '撤销（回补库存）',
+                    tooltip: log.isSkipped ? '撤销这个「没吃」标记' : '撤销（回补库存）',
                     onPressed: () => app.undoLog(log),
                   ),
                 ),

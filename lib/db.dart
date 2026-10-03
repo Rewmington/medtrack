@@ -163,7 +163,7 @@ class LocalDb {
     );
   }
 
-  /// 撤销打卡并回补库存。
+  /// 撤销打卡并回补库存；0 剂量的「没吃」标记不涉及库存，不去动药品行。
   Future<void> undoLogWithRefund(DoseLog log) async {
     final now = _now();
     await _db.transaction((txn) async {
@@ -173,11 +173,13 @@ class LocalDb {
         where: 'id = ?',
         whereArgs: [log.id],
       );
-      await txn.rawUpdate(
-        'UPDATE medicines SET remaining = COALESCE(remaining, boxes * per_box) + ?, '
-        'updated_at = ?, dirty = 1 WHERE id = ?',
-        [log.amount, now, log.medicineId],
-      );
+      if (log.amount > 0) {
+        await txn.rawUpdate(
+          'UPDATE medicines SET remaining = COALESCE(remaining, boxes * per_box) + ?, '
+          'updated_at = ?, dirty = 1 WHERE id = ?',
+          [log.amount, now, log.medicineId],
+        );
+      }
     });
   }
 

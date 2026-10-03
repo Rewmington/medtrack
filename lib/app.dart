@@ -15,6 +15,7 @@ class DayPlan {
   final Medicine medicine;
   final int minute; // 计划时间
   bool taken; // 已打卡
+  bool skipped; // 标记为「这顿没吃」，不扣库存、不算依从
   int? takenAtMs; // 对应打卡的实际时刻
   DoseLog? takenLog; // 命中的那条打卡记录（补录的在别处展示）
   bool get overdue =>
@@ -32,6 +33,7 @@ class DayPlan {
     this.medicine,
     this.minute, {
     this.taken = false,
+    this.skipped = false,
     this.takenAtMs,
     this.takenLog,
   });
@@ -107,8 +109,13 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 今天真正服下的次数（不含标记「没吃」的 0 剂量记录）。
   int takenToday(String medicineId) =>
-      todayLogs.where((l) => l.medicineId == medicineId).length;
+      todayLogs.where((l) => l.medicineId == medicineId && !l.isSkipped).length;
+
+  /// 今天被标记「没吃」的次数，这些格子从应服数里扣掉。
+  int skippedToday(String medicineId) =>
+      todayLogs.where((l) => l.medicineId == medicineId && l.isSkipped).length;
 
   /// 该药今天最近一次打卡，用于误点撤销。
   DoseLog? latestTodayLog(String medicineId) {
@@ -133,15 +140,17 @@ class AppController extends ChangeNotifier {
         for (final l in logs) l.takenAt,
       ], dayStart);
       for (var i = 0; i < slots.length; i++) {
+        final log = matched[i] == null
+            ? null
+            : logs.firstWhere((l) => l.takenAt == matched[i]);
         plans.add(
           DayPlan(
             m,
             slots[i],
-            taken: matched[i] != null,
+            taken: log != null && !log.isSkipped,
+            skipped: log != null && log.isSkipped,
             takenAtMs: matched[i],
-            takenLog: matched[i] == null
-                ? null
-                : logs.firstWhere((l) => l.takenAt == matched[i]),
+            takenLog: log,
           ),
         );
       }
@@ -240,33 +249,104 @@ class AppController extends ChangeNotifier {
     updatedAt: 0,
   );
 
+  /// 这顿没吃：写一条 0 剂量记录占住那个格子，不扣库存，也不算依从。
+  Future<void> markSkipped(
+    Medicine m,
+    DateTime when,
+    BuildContext? context,
+  ) async {
+    final messenger = _messengerOf(context);
+    final ms = when.millisecondsSinceEpoch;
+    // 同一格重复标记（连点、或两端各标一次）只留一条，否则会多占掉相邻的格子
+    if (weekLogs.any(
+      (l) => l.medicineId == m.id && l.isSkipped && l.takenAt == ms,
+    )) {
+      return;
+    }
+    await db.addLog(
+      DoseLog(
+        id: LocalDb.newId(),
+        medicineId: m.id,
+        takenAt: ms,
+        amount: 0,
+        note: '没吃',
+        updatedAt: 0,
+      ),
+    );
+    await refresh();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          '已标记 ${m.name} ${DateFormat('M月d日 HH:mm').format(when)} 没吃，不扣库存',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// 批量标记没吃。
+  Future<void> markAllSkipped(
+    List<MissedSlot> slots,
+    BuildContext? context,
+  ) async {
+    final messenger = _messengerOf(context);
+    for (final s in slots) {
+      await db.addLog(
+        DoseLog(
+          id: LocalDb.newId(),
+          medicineId: s.medicine.id,
+          takenAt: s.slotTime.millisecondsSinceEpoch,
+          amount: 0,
+          note: '没吃',
+          updatedAt: 0,
+        ),
+      );
+    }
+    await refresh();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('已标记 ${slots.length} 次没吃，未扣库存'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// 今天某个计划格子的实际时刻。
+  DateTime slotTimeOf(int minute) =>
+      DateTime(now.year, now.month, now.day, minute ~/ 60, minute % 60);
+
   static String _trim(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
 
+  /// 今日完成比例：分母扣掉标记没吃的格子。
   double get todayProgress {
-    final plans = todayPlan;
+    final plans = todayPlan.where((p) => !p.skipped).toList();
     if (plans.isEmpty) return 0;
     return plans.where((p) => p.taken).length / plans.length;
   }
 
-  /// 近 7 天每日依从率（0~1）。
+  /// 近 7 天每日依从率（0~1）。标记没吃的格子既不算完成，也从应服数里扣除。
   List<double> get weeklyAdherence {
+    final planned = medicines.fold<int>(
+      0,
+      (s, m) => s + m.scheduleMinutes.length,
+    );
     final result = <double>[];
     for (var i = 6; i >= 0; i--) {
       final day = DateTime(now.year, now.month, now.day - i);
       final next = day.add(const Duration(days: 1));
-      final count = weekLogs
-          .where(
-            (l) =>
-                l.takenAt >= day.millisecondsSinceEpoch &&
-                l.takenAt < next.millisecondsSinceEpoch,
-          )
-          .length;
-      final planned = medicines.fold<int>(
-        0,
-        (s, m) => s + m.scheduleMinutes.length,
+      final thatDay = weekLogs.where(
+        (l) =>
+            l.takenAt >= day.millisecondsSinceEpoch &&
+            l.takenAt < next.millisecondsSinceEpoch,
       );
-      result.add(planned == 0 ? 0 : (count / planned).clamp(0.0, 1.0));
+      final taken = thatDay.where((l) => !l.isSkipped).length;
+      final skipped = thatDay.length - taken;
+      final owed = planned - skipped;
+      result.add(switch (planned) {
+        0 => 0.0,
+        _ => (owed <= 0 ? 1.0 : taken / owed).clamp(0.0, 1.0),
+      });
     }
     return result;
   }
@@ -275,6 +355,7 @@ class AppController extends ChangeNotifier {
   int get streakDays {
     final dayCounts = List<int>.filled(7, 0);
     for (final l in weekLogs) {
+      if (l.isSkipped) continue; // 没吃不算打卡
       final d = DateTime.fromMillisecondsSinceEpoch(l.takenAt);
       final diff = DateTime(
         now.year,

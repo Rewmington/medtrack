@@ -194,7 +194,8 @@ class _MedicineCard extends StatelessWidget {
         ? t.warn
         : t.accent;
     final taken = app.takenToday(m.id);
-    final planned = m.scheduleMinutes.length;
+    // 标记「没吃」的格子从应服数里扣掉
+    final planned = m.scheduleMinutes.length - app.skippedToday(m.id);
     final todayHint = planned == 0
         ? ''
         : taken >= planned

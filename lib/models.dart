@@ -156,6 +156,9 @@ class DoseLog {
 
   DateTime get takenDateTime => DateTime.fromMillisecondsSinceEpoch(takenAt);
 
+  /// 0 剂量记录＝明确标记「这顿没吃」，不扣库存，也不计入依从率的分子分母。
+  bool get isSkipped => amount <= 0;
+
   Map<String, Object?> toRow() => {
     'id': id,
     'medicine_id': medicineId,

@@ -41,10 +41,6 @@ class Settings {
     }
   }
 
-  int cursor(String channel) => _prefs.getInt('${_k}cur_$channel') ?? 0;
-  Future<void> setCursor(String channel, int v) =>
-      _prefs.setInt('${_k}cur_$channel', v);
-
   Future<void> save() async {
     await _prefs.setInt('${_k}channel', syncChannel.index);
     await _prefs.setBool('${_k}lanHost', lanHost);

@@ -16,6 +16,7 @@ class StatsPage extends StatelessWidget {
     final app = context.watch<AppController>();
     final t = AppTokens.of(context);
     final stats = app.weekStats;
+    final month = app.monthStats;
     final adherence = stats.daily;
     final weekAvg = stats.rate;
     final byId = {for (final m in app.medicines) m.id: m};
@@ -96,7 +97,7 @@ class StatsPage extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              stats.headline,
+                              stats.headline('本周'),
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 15,
@@ -117,7 +118,7 @@ class StatsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        stats.detail,
+                        stats.detail('本周'),
                         style: TextStyle(
                           fontSize: 12.5,
                           color: t.tx2,
@@ -146,6 +147,43 @@ class StatsPage extends StatelessWidget {
                             label: '漏了',
                             value: '${stats.missed}',
                             color: stats.missed > 0 ? t.err : t.tx2,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Divider(height: 1, thickness: 1, color: t.line),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Text(
+                            '本月',
+                            style: TextStyle(fontSize: 12.5, color: t.tx2),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${(month.rate * 100).round()}%',
+                            style: TextStyle(
+                              fontFamily: AppTokens.serif,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 18,
+                              color: month.perfect ? t.ok : t.tx,
+                            ),
+                          ),
+                          if (month.perfect) ...[
+                            const SizedBox(width: 6),
+                            Tooltip(
+                              message: '本月一次没漏',
+                              child: Icon(
+                                Icons.emoji_events_rounded,
+                                size: 16,
+                                color: t.ok,
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          Text(
+                            month.countsLine,
+                            style: TextStyle(fontSize: 11.5, color: t.tx2),
                           ),
                         ],
                       ),

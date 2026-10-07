@@ -238,16 +238,21 @@ class LocalDb {
     return applied;
   }
 
-  /// 推送成功后清 dirty（仅当行未被再次本地修改）。
-  Future<void> clearDirty(String table, List<String> ids, int pushedAt) async {
-    if (ids.isEmpty) return;
-    final placeholders = List.filled(ids.length, '?').join(',');
-    await _db.update(
-      table,
-      {'dirty': 0},
-      where: 'id IN ($placeholders) AND updated_at <= ?',
-      whereArgs: [...ids, pushedAt],
-    );
+  /// 推送成功后清 dirty：只清「推出去的正是这一版」的行。
+  /// 用行自己的 updated_at 比对，不能用本机当前时间——另一台设备时钟超前时，
+  /// 拉来的行时间戳会大于本机 now，于是永远清不掉、每次都被重复推回去。
+  Future<void> clearDirty(String table, Map<String, int> pushedVersions) async {
+    if (pushedVersions.isEmpty) return;
+    await _db.transaction((txn) async {
+      for (final e in pushedVersions.entries) {
+        await txn.update(
+          table,
+          {'dirty': 0},
+          where: 'id = ? AND updated_at = ?',
+          whereArgs: [e.key, e.value],
+        );
+      }
+    });
   }
 
   Future<void> markAllDirty() => _db.transaction((txn) async {

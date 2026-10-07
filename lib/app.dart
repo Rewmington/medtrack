@@ -55,6 +55,7 @@ class AppController extends ChangeNotifier {
   List<Medicine> medicines = [];
   List<DoseLog> todayLogs = [];
   List<DoseLog> weekLogs = [];
+  List<DoseLog> monthLogs = []; // 本月 1 号至今
   Map<String, List<DoseLog>> weekMap = {}; // 药 id → 近 7 天打卡
   bool busy = false;
   String? lastSyncMessage;
@@ -93,14 +94,16 @@ class AppController extends ChangeNotifier {
   Future<void> refresh() async {
     medicines = await db.activeMedicines();
     todayLogs = await db.logsFor(now);
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final weekStart = DateTime(
       now.year,
       now.month,
       now.day,
     ).subtract(const Duration(days: 6));
-    weekLogs = await db.logsBetween(
-      weekStart,
-      DateTime(now.year, now.month, now.day + 1),
+    weekLogs = await db.logsBetween(weekStart, tomorrow);
+    monthLogs = await db.logsBetween(
+      DateTime(now.year, now.month, 1),
+      tomorrow,
     );
     weekMap = {
       for (final m in medicines)
@@ -108,6 +111,13 @@ class AppController extends ChangeNotifier {
     };
     notifyListeners();
   }
+
+  /// 近 7 天汇总（含今天，今天只算已过时间点）。
+  PeriodStats get weekStats => computeStats(medicines, weekLogs, now, 7);
+
+  /// 本月 1 号至今的汇总。
+  PeriodStats get monthStats =>
+      computeStats(medicines, monthLogs, now, now.day);
 
   /// 今天真正服下的次数（不含标记「没吃」的 0 剂量记录）。
   int takenToday(String medicineId) =>
@@ -324,9 +334,6 @@ class AppController extends ChangeNotifier {
     if (plans.isEmpty) return 0;
     return plans.where((p) => p.taken).length / plans.length;
   }
-
-  /// 近 7 天服药汇总（含今天，今天只算已过时间点）。
-  WeekStats get weekStats => computeWeekStats(medicines, weekLogs, now);
 
   /// 近 7 天依从率里已打卡的连续天数（今天没打卡则从昨天起算）。
   int get streakDays {

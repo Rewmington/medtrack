@@ -216,16 +216,18 @@ List<int?> matchSlots(
   return result;
 }
 
-/// 一周（含今天，今天只算已过时间点）的服药汇总。
-class WeekStats {
+/// 一段时间（含今天，今天只算已过时间点）的服药汇总。
+class PeriodStats {
   final int taken; // 实服次数
   final int owed; // 应服次数（已到期、且没被标记没吃）
   final int skipped; // 标记没吃的次数
-  final List<double> daily; // 7 个值，索引 0 = 6 天前
-  const WeekStats({
+  final int days; // 统计天数
+  final List<double> daily; // 与 days 等长，索引 0 = 最早那天
+  const PeriodStats({
     required this.taken,
     required this.owed,
     required this.skipped,
+    required this.days,
     required this.daily,
   });
 
@@ -243,31 +245,37 @@ class WeekStats {
     _ => '漏得多了',
   };
 
-  String get headline => !hasPlan
-      ? '这周还没有需要打卡的安排'
+  String headline(String scope) => !hasPlan
+      ? '$scope还没有需要打卡的安排'
       : perfect
-      ? '本周至今一次没漏'
-      : '本周至今$grade';
+      ? '$scope一次没漏'
+      : '$scope$grade';
 
-  String get detail => !hasPlan
+  /// 一行式计数，用于空间窄的地方。
+  String get countsLine =>
+      '应服 $owed · 实服 $taken · 漏 $missed'
+      '${skipped > 0 ? ' · 没吃 $skipped' : ''}';
+
+  String detail(String scope) => !hasPlan
       ? '添加药品并设好每天次数后，这里会开始统计。'
       : perfect
-      ? '$taken 次全部按时记录，药盒里的数字和身体对得上。'
-      : '应服 $owed 次，实服 $taken 次，漏了 $missed 次'
+      ? '$taken 次全部记录在案，药盒里的数字和身体对得上。'
+      : '$scope应服 $owed 次，实服 $taken 次，漏了 $missed 次'
             '${skipped > 0 ? '，另有 $skipped 次标记没吃' : ''}。';
 }
 
-/// 逐药逐天累计：药品添加之前的日子不计应服，今天未到的时间点也不计。
-WeekStats computeWeekStats(
+/// 逐药逐天累计 [days] 天：药品添加之前的日子不计应服，今天未到的时间点也不计。
+PeriodStats computeStats(
   List<Medicine> medicines,
   List<DoseLog> logs,
   DateTime now,
+  int days,
 ) {
   final todayStart = DateTime(now.year, now.month, now.day);
   final nowMin = now.hour * 60 + now.minute;
   final daily = <double>[];
   var taken = 0, owed = 0, skipped = 0;
-  for (var back = 6; back >= 0; back--) {
+  for (var back = days - 1; back >= 0; back--) {
     final dayStart = todayStart.subtract(Duration(days: back));
     final dayStartMs = dayStart.millisecondsSinceEpoch;
     final dayEndMs = dayStartMs + const Duration(days: 1).inMilliseconds;
@@ -299,5 +307,11 @@ WeekStats computeWeekStats(
     owed += dOwed;
     taken += dTaken;
   }
-  return WeekStats(taken: taken, owed: owed, skipped: skipped, daily: daily);
+  return PeriodStats(
+    taken: taken,
+    owed: owed,
+    skipped: skipped,
+    days: days,
+    daily: daily,
+  );
 }

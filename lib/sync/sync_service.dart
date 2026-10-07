@@ -46,7 +46,6 @@ class SyncService {
 
   Future<SyncResult> _lanSync() async {
     try {
-      final since = {for (final t in tables) t: settings.cursor('lan:$t')};
       final outbox = {for (final t in tables) t: await db.outbox(t)};
       final url = settings.lanPeerUrl.replaceAll(RegExp(r'/+$'), '');
       final resp = await http
@@ -58,7 +57,8 @@ class SyncService {
             },
             body: jsonEncode({
               'device': settings.deviceId,
-              'since': since,
+              // 固定全量拉取：时间戳游标取的是对端时钟，换主机或时钟有偏差就会永久漏记录。
+              'since': {for (final t in tables) t: 0},
               ...outbox.map((t, rows) => MapEntry(t, _json(rows))),
             }),
           )
@@ -68,23 +68,27 @@ class SyncService {
       }
       final data =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-      final serverTime = (data['serverTime'] as num).toInt();
       var pushed = 0, pulled = 0;
       for (final t in tables) {
         final incoming = (data[t] as List? ?? [])
             .map((e) => Map<String, Object?>.from(e as Map))
             .toList();
         pulled += await db.applyIncoming(t, incoming);
-        final ids = outbox[t]!.map((r) => r['id'] as String).toList();
-        await db.clearDirty(t, ids, serverTime);
-        pushed += ids.length;
-        await settings.setCursor('lan:$t', serverTime);
+        final rows = outbox[t]!;
+        await db.clearDirty(t, _versions(rows));
+        pushed += rows.length;
       }
       return SyncResult(pushed: pushed, pulled: pulled);
     } catch (e) {
       return SyncResult(error: e.toString());
     }
   }
+
+  /// 推送出去的那些行的版本（id → updated_at），用于确认没被并发改动。
+  static Map<String, int> _versions(List<Map<String, Object?>> rows) => {
+    for (final r in rows)
+      r['id'] as String: (r['updated_at'] as num?)?.toInt() ?? 0,
+  };
 
   static String _json(List<Map<String, Object?>> rows) => jsonEncode(rows);
   // ---------- Supabase 通道（PostgREST，无需登录） ----------
@@ -99,14 +103,11 @@ class SyncService {
     };
     try {
       var pushed = 0, pulled = 0;
-      final now = DateTime.now().millisecondsSinceEpoch;
       for (final t in tables) {
-        final cursor = settings.cursor('sb:$t');
+        // 全量拉取：游标若用本机时钟，另一端时钟落后于上次游标的行会被永久跳过，
+        // 表现就是手机满勤、电脑一堆遗漏。数据量是个位到几百行，代价可忽略。
         final getResp = await http
-            .get(
-              Uri.parse('$base/rest/v1/$t?select=*&updated_at=gt.$cursor'),
-              headers: headers,
-            )
+            .get(Uri.parse('$base/rest/v1/$t?select=*'), headers: headers)
             .timeout(const Duration(seconds: 20));
         if (getResp.statusCode != 200) {
           return SyncResult(error: '拉取 $t 失败 ${getResp.statusCode}');
@@ -116,6 +117,7 @@ class SyncService {
             .toList();
         pulled += await db.applyIncoming(t, incoming);
 
+        // 上一步已见过远端每一版，剩下的 dirty 行必然更新，可安全覆盖
         final out = await db.outbox(t);
         if (out.isNotEmpty) {
           final postResp = await http
@@ -134,14 +136,9 @@ class SyncService {
               error: '推送 $t 失败 ${postResp.statusCode}: ${postResp.body}',
             );
           }
-          await db.clearDirty(
-            t,
-            out.map((r) => r['id'] as String).toList(),
-            now,
-          );
+          await db.clearDirty(t, _versions(out));
           pushed += out.length;
         }
-        await settings.setCursor('sb:$t', now);
       }
       return SyncResult(pushed: pushed, pulled: pulled);
     } catch (e) {

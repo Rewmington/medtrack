@@ -153,6 +153,92 @@ void main() {
     );
   });
 
+  group('本周总结统计', () {
+    // 固定「现在」为 10 月 3 日 21:30，窗口＝9 月 27 日～10 月 3 日，两天 4 格全到期
+    final now = DateTime(2026, 10, 3, 21, 30);
+    final med = make(doses: 2, amount: 1, times: '08:00,20:00');
+
+    List<DoseLog> slotLogs(
+      List<int> backs,
+      List<int> hours, {
+      double amount = 1,
+    }) => [
+      for (final back in backs)
+        for (final h in hours)
+          DoseLog(
+            id: 'l$back$h$amount',
+            medicineId: med.id,
+            takenAt: DateTime(2026, 10, 3 - back, h).millisecondsSinceEpoch,
+            amount: amount,
+            note: amount == 0 ? '没吃' : '',
+            updatedAt: 1,
+          ),
+    ];
+
+    final all = [
+      for (final b in [6, 5, 4, 3, 2, 1, 0]) ...slotLogs([b], [8, 20]),
+    ];
+
+    test('全部按时打卡＝满勤', () {
+      final s = computeWeekStats([med], all, now);
+      expect(s.owed, 14);
+      expect(s.taken, 14);
+      expect(s.missed, 0);
+      expect(s.perfect, isTrue);
+      expect(s.rate, 1.0);
+      expect(s.headline, '本周至今一次没漏');
+    });
+
+    test('一次没打＝漏满一周', () {
+      final s = computeWeekStats([med], const [], now);
+      expect(s.owed, 14);
+      expect(s.missed, 14);
+      expect(s.perfect, isFalse);
+      expect(s.rate, 0.0);
+    });
+
+    test('今天还没到的时间点不算欠', () {
+      final s = computeWeekStats([med], const [], DateTime(2026, 10, 3, 9, 0));
+      expect(s.owed, 13); // 6 天 × 2 格 + 今天只有 08:00 到期
+    });
+
+    test('早间实服＋晚间标记没吃＝那天不缺，仍算满勤', () {
+      final logs = <DoseLog>[
+        ...slotLogs([6, 5, 4, 3, 2, 1, 0], [8]),
+        ...slotLogs([6, 5, 4, 3, 2, 1, 0], [20], amount: 0),
+      ];
+      final s = computeWeekStats([med], logs, now);
+      expect(s.skipped, 7);
+      expect(s.owed, 7);
+      expect(s.taken, 7);
+      expect(s.missed, 0);
+      expect(s.perfect, isTrue);
+    });
+
+    test('药品添加之前的日子不计应服', () {
+      final late = Medicine(
+        id: med.id,
+        name: med.name,
+        perBox: 30,
+        remaining: 60,
+        dosesPerDay: 2,
+        amountPerDose: 1,
+        times: '08:00,20:00',
+        createdAt: DateTime(2026, 10, 2, 7).millisecondsSinceEpoch,
+        updatedAt: 1,
+      );
+      final s = computeWeekStats([late], const [], now);
+      expect(s.owed, 4); // 只有 10 月 2、3 两天，各 2 格
+    });
+
+    test('同一格连点两次不虚增应服完成数', () {
+      final s = computeWeekStats([med], [...all, ...all], now);
+      expect(s.taken, 14); // 每天被时间点数量截断
+      expect(s.owed, 14);
+      expect(s.missed, 0);
+    });
+  });
+
   test('行序列化往返一致', () {
     final m = make(times: '08:00,20:00');
     final back = Medicine.fromRow(m.toRow());

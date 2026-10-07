@@ -215,3 +215,89 @@ List<int?> matchSlots(
   }
   return result;
 }
+
+/// 一周（含今天，今天只算已过时间点）的服药汇总。
+class WeekStats {
+  final int taken; // 实服次数
+  final int owed; // 应服次数（已到期、且没被标记没吃）
+  final int skipped; // 标记没吃的次数
+  final List<double> daily; // 7 个值，索引 0 = 6 天前
+  const WeekStats({
+    required this.taken,
+    required this.owed,
+    required this.skipped,
+    required this.daily,
+  });
+
+  int get missed => (owed - taken).clamp(0, owed);
+  bool get hasPlan => owed > 0 || skipped > 0;
+  double get rate =>
+      owed == 0 ? (skipped > 0 ? 1.0 : 0.0) : (taken / owed).clamp(0.0, 1.0);
+  bool get perfect => owed > 0 && missed == 0;
+
+  /// 满勤之外的分级说法。
+  String get grade => switch (rate) {
+    >= 0.95 => '很稳',
+    >= 0.8 => '还行',
+    >= 0.6 => '有点漏',
+    _ => '漏得多了',
+  };
+
+  String get headline => !hasPlan
+      ? '这周还没有需要打卡的安排'
+      : perfect
+      ? '本周至今一次没漏'
+      : '本周至今$grade';
+
+  String get detail => !hasPlan
+      ? '添加药品并设好每天次数后，这里会开始统计。'
+      : perfect
+      ? '$taken 次全部按时记录，药盒里的数字和身体对得上。'
+      : '应服 $owed 次，实服 $taken 次，漏了 $missed 次'
+            '${skipped > 0 ? '，另有 $skipped 次标记没吃' : ''}。';
+}
+
+/// 逐药逐天累计：药品添加之前的日子不计应服，今天未到的时间点也不计。
+WeekStats computeWeekStats(
+  List<Medicine> medicines,
+  List<DoseLog> logs,
+  DateTime now,
+) {
+  final todayStart = DateTime(now.year, now.month, now.day);
+  final nowMin = now.hour * 60 + now.minute;
+  final daily = <double>[];
+  var taken = 0, owed = 0, skipped = 0;
+  for (var back = 6; back >= 0; back--) {
+    final dayStart = todayStart.subtract(Duration(days: back));
+    final dayStartMs = dayStart.millisecondsSinceEpoch;
+    final dayEndMs = dayStartMs + const Duration(days: 1).inMilliseconds;
+    final isToday = back == 0;
+    var dOwed = 0, dTaken = 0, dSlots = 0;
+    for (final m in medicines) {
+      final slots = m.scheduleMinutes.where((min) {
+        if (dayStartMs + min * 60000 < m.createdAt) return false;
+        if (isToday && min > nowMin) return false;
+        return true;
+      }).toList();
+      if (slots.isEmpty) continue;
+      dSlots += slots.length;
+      final mine = logs.where(
+        (l) =>
+            l.medicineId == m.id &&
+            l.takenAt >= dayStartMs &&
+            l.takenAt < dayEndMs,
+      );
+      final t = mine.where((l) => !l.isSkipped).length;
+      final s = (mine.length - t).clamp(0, slots.length);
+      dTaken += t > slots.length ? slots.length : t;
+      dOwed += slots.length - s;
+      skipped += s;
+    }
+    daily.add(
+      dSlots == 0 ? 0.0 : (dOwed <= 0 ? 1.0 : dTaken / dOwed).clamp(0.0, 1.0),
+    );
+    owed += dOwed;
+    taken += dTaken;
+  }
+  return WeekStats(taken: taken, owed: owed, skipped: skipped, daily: daily);
+}

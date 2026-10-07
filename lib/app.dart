@@ -325,31 +325,8 @@ class AppController extends ChangeNotifier {
     return plans.where((p) => p.taken).length / plans.length;
   }
 
-  /// 近 7 天每日依从率（0~1）。标记没吃的格子既不算完成，也从应服数里扣除。
-  List<double> get weeklyAdherence {
-    final planned = medicines.fold<int>(
-      0,
-      (s, m) => s + m.scheduleMinutes.length,
-    );
-    final result = <double>[];
-    for (var i = 6; i >= 0; i--) {
-      final day = DateTime(now.year, now.month, now.day - i);
-      final next = day.add(const Duration(days: 1));
-      final thatDay = weekLogs.where(
-        (l) =>
-            l.takenAt >= day.millisecondsSinceEpoch &&
-            l.takenAt < next.millisecondsSinceEpoch,
-      );
-      final taken = thatDay.where((l) => !l.isSkipped).length;
-      final skipped = thatDay.length - taken;
-      final owed = planned - skipped;
-      result.add(switch (planned) {
-        0 => 0.0,
-        _ => (owed <= 0 ? 1.0 : taken / owed).clamp(0.0, 1.0),
-      });
-    }
-    return result;
-  }
+  /// 近 7 天服药汇总（含今天，今天只算已过时间点）。
+  WeekStats get weekStats => computeWeekStats(medicines, weekLogs, now);
 
   /// 近 7 天依从率里已打卡的连续天数（今天没打卡则从昨天起算）。
   int get streakDays {

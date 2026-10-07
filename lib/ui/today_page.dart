@@ -22,9 +22,8 @@ class TodayPage extends StatelessWidget {
     final done = active.where((p) => p.taken).toList();
     final later = active.where((p) => !p.taken && p.minute > nowMin).toList();
     final skipped = plans.where((p) => p.skipped).toList();
-    final week = app.weeklyAdherence;
-    final weekAvg = week.isEmpty ? 0.0 : week.reduce((a, b) => a + b) / 7;
-    final next = plans.where((p) => !p.taken).firstOrNull;
+    final weekAvg = app.weekStats.rate;
+    final next = active.where((p) => !p.taken).firstOrNull;
     final missed = app.missedSlots;
 
     return Scaffold(

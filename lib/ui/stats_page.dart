@@ -15,9 +15,9 @@ class StatsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppController>();
     final t = AppTokens.of(context);
-    final adherence = app.weeklyAdherence;
-    final weekTotal = adherence.fold<double>(0, (s, v) => s + v);
-    final weekAvg = weekTotal / 7;
+    final stats = app.weekStats;
+    final adherence = stats.daily;
+    final weekAvg = stats.rate;
     final byId = {for (final m in app.medicines) m.id: m};
     final sorted = [...app.medicines]
       ..sort((a, b) {
@@ -77,6 +77,76 @@ class StatsPage extends StatelessWidget {
                           _Legend(color: t.accentSoft, label: '依从率'),
                           const SizedBox(width: 14),
                           _Legend(color: t.accent, label: '今天（进行中）'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              stats.headline,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                fontFamily: AppTokens.serif,
+                                color: stats.perfect ? t.ok : t.tx,
+                              ),
+                            ),
+                          ),
+                          if (stats.perfect)
+                            _PerfectSeal(color: t.ok)
+                          else if (stats.hasPlan && stats.rate >= 0.8)
+                            Icon(
+                              Icons.verified_outlined,
+                              size: 22,
+                              color: t.ok,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        stats.detail,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: t.tx2,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _Count(
+                            label: '应服',
+                            value: '${stats.owed}',
+                            color: t.tx,
+                          ),
+                          _Count(
+                            label: '实服',
+                            value: '${stats.taken}',
+                            color: t.ok,
+                          ),
+                          _Count(
+                            label: '没吃',
+                            value: '${stats.skipped}',
+                            color: t.tx2,
+                          ),
+                          _Count(
+                            label: '漏了',
+                            value: '${stats.missed}',
+                            color: stats.missed > 0 ? t.err : t.tx2,
+                          ),
                         ],
                       ),
                     ],
@@ -146,6 +216,66 @@ class StatsPage extends StatelessWidget {
 
   static String _fmt(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+}
+
+/// 满勤印章：宋体字 + 双线框，略微歪斜，像盖在纸上。
+class _PerfectSeal extends StatelessWidget {
+  final Color color;
+  const _PerfectSeal({required this.color});
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+    angle: -0.12,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.75), width: 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(2.5),
+        child: Text(
+          '满勤',
+          style: TextStyle(
+            fontFamily: AppTokens.serif,
+            fontWeight: FontWeight.w900,
+            fontSize: 17,
+            letterSpacing: 2,
+            color: color,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _Count extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _Count({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: AppTokens.serif,
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(fontSize: 11.5, color: t.tx2)),
+        ],
+      ),
+    );
+  }
 }
 
 class _Section extends StatelessWidget {

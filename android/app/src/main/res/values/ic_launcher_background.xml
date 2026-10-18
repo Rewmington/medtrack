@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- lib/theme.dart 暖纸主题 tx -->
+    <color name="ic_launcher_background">#FF2B251C</color>
+</resources>

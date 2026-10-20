@@ -1,6 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum SyncChannel { off, lan, supabase }
+enum SyncChannel { off, lan, supabase, webdav }
 
 class Settings {
   static const _k = 'mt_';
@@ -14,6 +14,8 @@ class Settings {
   String lanKey = ''; // 可选预共享密钥
   String supabaseUrl = '';
   String supabaseAnonKey = '';
+  String webdavUser = ''; // 坚果云注册邮箱
+  String webdavPass = ''; // 第三方应用密码，不是登录密码
   bool lowStockReminders = true; // 开屏低药量检测提示
   bool missedReminders = true; // 今天页提示漏打卡补录
   int themeMode = 0; // 0=跟随系统 1=浅色 2=深色
@@ -30,6 +32,8 @@ class Settings {
     lanKey = _prefs.getString('${_k}lanKey') ?? '';
     supabaseUrl = _prefs.getString('${_k}sbUrl') ?? '';
     supabaseAnonKey = _prefs.getString('${_k}sbKey') ?? '';
+    webdavUser = _prefs.getString('${_k}wdUser') ?? '';
+    webdavPass = _prefs.getString('${_k}wdPass') ?? '';
     lowStockReminders = _prefs.getBool('${_k}remindLow') ?? true;
     missedReminders = _prefs.getBool('${_k}remindMissed') ?? true;
     themeMode = _prefs.getInt('${_k}theme') ?? 0;
@@ -49,6 +53,8 @@ class Settings {
     await _prefs.setString('${_k}lanKey', lanKey.trim());
     await _prefs.setString('${_k}sbUrl', supabaseUrl.trim());
     await _prefs.setString('${_k}sbKey', supabaseAnonKey.trim());
+    await _prefs.setString('${_k}wdUser', webdavUser.trim());
+    await _prefs.setString('${_k}wdPass', webdavPass.trim());
     await _prefs.setBool('${_k}remindLow', lowStockReminders);
     await _prefs.setBool('${_k}remindMissed', missedReminders);
     await _prefs.setInt('${_k}theme', themeMode);

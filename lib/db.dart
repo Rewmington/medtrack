@@ -26,13 +26,15 @@ class LocalDb {
   static final _uuid = const Uuid();
   static String newId() => _uuid.v4();
 
-  Future<void> open() async {
+  /// [overridePath] 供 tools/ 下的离线校验脚本打开库副本，App 内一律留空。
+  Future<void> open({String? overridePath}) async {
     final isDesktop =
         Platform.isWindows || Platform.isLinux || Platform.isMacOS;
     if (isDesktop) sqfliteFfiInit();
     final factory = isDesktop ? databaseFactoryFfi : databaseFactory;
-    final dir = await getApplicationSupportDirectory();
-    final path = p.join(dir.path, 'medicine_tracker.db');
+    final path = overridePath ??
+        p.join((await getApplicationSupportDirectory()).path,
+            'medicine_tracker.db');
     _db = await factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
@@ -60,6 +62,9 @@ class LocalDb {
   }
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
+
+  /// 释放文件句柄：App 整个生命周期不需要，离线校验脚本删临时库前必须调。
+  Future<void> close() async => _db.close();
 
   // ---------- 业务读写（本地写入一律标 dirty=1） ----------
 

@@ -16,7 +16,8 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late final AppController app;
-  late final TextEditingController _peer, _key, _port, _sbUrl, _sbKey;
+  late final TextEditingController _peer, _key, _port, _sbUrl, _sbKey,
+      _wdUser, _wdPass;
   SyncChannel? _channel;
 
   @override
@@ -30,6 +31,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _port = TextEditingController(text: '${s.lanPort}');
     _sbUrl = TextEditingController(text: s.supabaseUrl);
     _sbKey = TextEditingController(text: s.supabaseAnonKey);
+    _wdUser = TextEditingController(text: s.webdavUser);
+    _wdPass = TextEditingController(text: s.webdavPass);
   }
 
   @override
@@ -39,6 +42,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _port.dispose();
     _sbUrl.dispose();
     _sbKey.dispose();
+    _wdUser.dispose();
+    _wdPass.dispose();
     super.dispose();
   }
 
@@ -50,6 +55,8 @@ class _SettingsPageState extends State<SettingsPage> {
     s.lanPort = int.tryParse(_port.text) ?? 8765;
     s.supabaseUrl = _sbUrl.text;
     s.supabaseAnonKey = _sbKey.text;
+    s.webdavUser = _wdUser.text;
+    s.webdavPass = _wdPass.text;
     await s.save();
     await app.lanServer.stop();
     if (s.lanHost) await app.lanServer.start();
@@ -74,7 +81,9 @@ class _SettingsPageState extends State<SettingsPage> {
             segments: const [
               ButtonSegment(value: SyncChannel.off, label: Text('纯本地')),
               ButtonSegment(value: SyncChannel.lan, label: Text('局域网')),
-              ButtonSegment(value: SyncChannel.supabase, label: Text('云端')),
+              ButtonSegment(value: SyncChannel.webdav, label: Text('坚果云')),
+              ButtonSegment(
+                  value: SyncChannel.supabase, label: Text('Supabase')),
             ],
             selected: {_channel ?? SyncChannel.off},
             onSelectionChanged: (v) => setState(() => _channel = v.first),
@@ -120,6 +129,43 @@ class _SettingsPageState extends State<SettingsPage> {
                         icon: const Icon(Icons.lan_outlined),
                         label: const Text('查看本机 IP 地址'),
                         onPressed: _showIps,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_channel == SyncChannel.webdav)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _wdUser,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: '坚果云账号（注册邮箱）',
+                        hintText: 'you@example.com',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _wdPass,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: '应用密码',
+                        helperText: '网页端「账户信息 → 安全选项 → 第三方应用管理」里生成，不是登录密码',
+                        helperMaxLines: 2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '数据存放在 dav.jianguoyun.com/dav/medicine-sync/ 下，'
+                        '每台设备各写一个 device-设备号.json，读取时合并全部设备再按时间戳取新。',
+                        style: TextStyle(fontSize: 12, color: Colors.blueGrey),
                       ),
                     ),
                   ],

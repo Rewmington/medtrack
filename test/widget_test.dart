@@ -123,6 +123,13 @@ void main() {
       expect(m[2], isNull);
     });
 
+    test('下午补点早上那一格，点亮的是 08:00 而不是 20:00', () {
+      // 打卡记录写槽位时刻（checkIn 传 plan.minute），所以时间戳正好等于格子时间。
+      final m = matchSlots([8 * 60, 20 * 60], [at(8)], base);
+      expect(m[0], at(8));
+      expect(m[1], isNull);
+    });
+
     test('空槽位或没有打卡', () {
       expect(matchSlots(const [], [at(8)], base), isEmpty);
       expect(matchSlots(slots, const [], base), [null, null, null]);

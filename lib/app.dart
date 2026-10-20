@@ -364,12 +364,16 @@ class AppController extends ChangeNotifier {
   Future<void> deleteMedicine(String id) =>
       db.softDeleteMedicine(id).then((_) => refresh());
 
-  Future<void> checkIn(Medicine m) async {
+  /// 打卡就打在点的那一格上：记这一刻槽位的时间，而不是按下的钟点。
+  ///
+  /// 否则 15:30 补点早上 07:30 那一格时，就近匹配会觉得它离 21:00 更近，
+  /// 于是晚上那格被顺手点亮、早上那格还挂着——「稍后」列表也就没有它了。
+  Future<void> checkIn(Medicine m, int minute) async {
     await db.checkInWithDeduction(
       DoseLog(
         id: LocalDb.newId(),
         medicineId: m.id,
-        takenAt: DateTime.now().millisecondsSinceEpoch,
+        takenAt: slotTimeOf(minute).millisecondsSinceEpoch,
         amount: m.amountPerDose,
         updatedAt: 0,
       ),

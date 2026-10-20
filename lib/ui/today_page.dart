@@ -378,7 +378,7 @@ class _DueRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () => app.checkIn(m),
+            onTap: () => app.checkIn(m, plan.minute),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
               decoration: BoxDecoration(
